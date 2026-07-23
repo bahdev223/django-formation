@@ -1,0 +1,5 @@
+from django_formation.domain.value_objects.statut_apprenant import StatutApprenant
+from django_formation.domain.value_objects.statut_formation import StatutFormation
+from django_formation.domain.value_objects.statut_session import StatutSession
+from django_formation.domain.value_objects.statut_inscription import StatutInscription
+from django_formation.domain.value_objects.role_etablissement import RoleEtablissement
