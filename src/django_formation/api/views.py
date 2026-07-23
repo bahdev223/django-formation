@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 
 from django_formation.models.etablissement import Etablissement
@@ -13,14 +14,15 @@ from django_formation.models.membre import MembreEtablissement
 from django_formation.api.serializers import (
     EtablissementSerializer, EtablissementListSerializer,
     MembreEtablissementSerializer,
-    ApprenantListSerializer, ApprenantDetailSerializer, ApprenantCreateSerializer,
-    FormationListSerializer, FormationDetailSerializer,
-    SessionListSerializer, SessionDetailSerializer,
+    ApprenantListSerializer, ApprenantDetailSerializer, ApprenantCreateSerializer, ApprenantUpdateSerializer,
+    FormationListSerializer, FormationDetailSerializer, FormationCreateSerializer, FormationUpdateSerializer,
+    SessionListSerializer, SessionDetailSerializer, SessionCreateSerializer, SessionUpdateSerializer,
     InscriptionListSerializer, InscriptionDetailSerializer, InscriptionCreateSerializer,
     SessionStatsSerializer, InscriptionHistoriqueSerializer,
 )
 from django_formation.api.permissions import (
     IsAuthenticatedMember, IsProprietaireOrAdmin, CanManageLearners, CanManageEnrollments,
+    CanManageTrainings, CanManageSessions,
 )
 from django_formation.services.apprenants import ApprenantService
 from django_formation.services.formations import FormationService
@@ -42,11 +44,29 @@ session_sel = SessionSelector()
 inscription_sel = InscriptionSelector()
 
 
-def _get_etablissement_from_request(request):
-    etablissement_id = request.GET.get("etablissement") or request.data.get("etablissement")
-    if etablissement_id:
-        return get_object_or_404(Etablissement, pk=etablissement_id, membres__utilisateur=request.user, membres__actif=True)
-    return None
+def _get_accessible(model, user, pk):
+    return get_object_or_404(
+        model, pk=pk,
+        etablissement__membres__utilisateur=user,
+        etablissement__membres__actif=True,
+    )
+
+
+def _get_objet_editable(model, user, pk, roles):
+    return get_object_or_404(
+        model, pk=pk,
+        etablissement__membres__utilisateur=user,
+        etablissement__membres__actif=True,
+        etablissement__membres__role__in=roles,
+    )
+
+
+def _check_etablissement_permission(user, etablissement_id, roles):
+    if not MembreEtablissement.objects.filter(
+        utilisateur=user, etablissement_id=etablissement_id,
+        actif=True, role__in=roles,
+    ).exists():
+        raise PermissionDenied("Vous n'avez pas les droits nécessaires sur cet établissement")
 
 
 # ---- Établissements ----
@@ -70,6 +90,7 @@ def etablissement_detail(request, pk):
     etablissement = get_object_or_404(Etablissement, pk=pk, membres__utilisateur=request.user, membres__actif=True)
     if request.method == "GET":
         return Response(EtablissementSerializer(etablissement).data)
+    _check_etablissement_permission(request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     serializer = EtablissementSerializer(etablissement, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     serializer.save()
@@ -80,6 +101,7 @@ def etablissement_detail(request, pk):
 @permission_classes([IsAuthenticated])
 def etablissement_activer(request, pk):
     etablissement = get_object_or_404(Etablissement, pk=pk, membres__utilisateur=request.user, membres__actif=True)
+    _check_etablissement_permission(request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     etablissement.actif = True
     etablissement.save(update_fields=["actif"])
     return Response({"status": "ok"})
@@ -89,6 +111,7 @@ def etablissement_activer(request, pk):
 @permission_classes([IsAuthenticated])
 def etablissement_desactiver(request, pk):
     etablissement = get_object_or_404(Etablissement, pk=pk, membres__utilisateur=request.user, membres__actif=True)
+    _check_etablissement_permission(request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     etablissement.actif = False
     etablissement.save(update_fields=["actif"])
     return Response({"status": "ok"})
@@ -99,7 +122,8 @@ def etablissement_desactiver(request, pk):
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def membre_list_create(request, pk):
-    etablissement = get_object_or_404(Etablissement, pk=pk)
+    etablissement = get_object_or_404(Etablissement, pk=pk, membres__utilisateur=request.user, membres__actif=True)
+    _check_etablissement_permission(request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     if request.method == "GET":
         qs = MembreEtablissement.objects.filter(etablissement=etablissement)
         return Response(MembreEtablissementSerializer(qs, many=True).data)
@@ -112,7 +136,8 @@ def membre_list_create(request, pk):
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def membre_detail(request, pk):
-    membre = get_object_or_404(MembreEtablissement, pk=pk)
+    membre = get_object_or_404(MembreEtablissement, pk=pk, etablissement__membres__utilisateur=request.user, etablissement__membres__actif=True)
+    _check_etablissement_permission(request.user, membre.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     if request.method == "PATCH":
         serializer = MembreEtablissementSerializer(membre, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -135,13 +160,16 @@ def apprenant_list_create(request):
         ordering = request.query_params.get("ordering", "nom")
         if not etablissement_id:
             return Response({"error": "etablissement parameter is required"}, status=400)
+        _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"])
         qs = apprenant_sel.rechercher_apprenants(etablissement_id, query=search or "", statut=statut)
         qs = qs.order_by(ordering)
         return Response(ApprenantListSerializer(qs, many=True).data)
     serializer = ApprenantCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     etablissement_id = request.data.get("etablissement")
-    etablissement = get_object_or_404(Etablissement, pk=etablissement_id)
+    get_object_or_404(Etablissement, pk=etablissement_id, membres__utilisateur=request.user, membres__actif=True)
+    _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"])
+    etablissement = Etablissement.objects.get(pk=etablissement_id)
     try:
         apprenant = apprenant_svc.creer_apprenant(etablissement=etablissement, **serializer.validated_data, cree_par=request.user)
         return Response(ApprenantDetailSerializer(apprenant).data, status=status.HTTP_201_CREATED)
@@ -152,21 +180,21 @@ def apprenant_list_create(request):
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def apprenant_detail(request, pk):
-    apprenant = get_object_or_404(Apprenant, pk=pk)
+    apprenant = _get_accessible(Apprenant, request.user, pk)
     if request.method == "GET":
         return Response(ApprenantDetailSerializer(apprenant).data)
-    serializer = ApprenantCreateSerializer(apprenant, data=request.data, partial=True)
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"])
+    serializer = ApprenantUpdateSerializer(apprenant, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
-    for field, value in serializer.validated_data.items():
-        setattr(apprenant, field, value)
-    apprenant.save()
+    apprenant_svc.modifier_apprenant(apprenant, **serializer.validated_data)
     return Response(ApprenantDetailSerializer(apprenant).data)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def apprenant_activer(request, pk):
-    apprenant = get_object_or_404(Apprenant, pk=pk)
+    apprenant = _get_accessible(Apprenant, request.user, pk)
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         apprenant_svc.activer_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
@@ -177,7 +205,8 @@ def apprenant_activer(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def apprenant_desactiver(request, pk):
-    apprenant = get_object_or_404(Apprenant, pk=pk)
+    apprenant = _get_accessible(Apprenant, request.user, pk)
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         apprenant_svc.desactiver_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
@@ -188,7 +217,8 @@ def apprenant_desactiver(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def apprenant_archiver(request, pk):
-    apprenant = get_object_or_404(Apprenant, pk=pk)
+    apprenant = _get_accessible(Apprenant, request.user, pk)
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         apprenant_svc.archiver_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
@@ -199,7 +229,7 @@ def apprenant_archiver(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def apprenant_inscriptions(request, pk):
-    apprenant = get_object_or_404(Apprenant, pk=pk)
+    apprenant = _get_accessible(Apprenant, request.user, pk)
     inscriptions = apprenant_sel.inscriptions_apprenant(apprenant)
     return Response(InscriptionListSerializer(inscriptions, many=True).data)
 
@@ -223,10 +253,14 @@ def formation_list_create(request):
             from django.db.models import Q
             qs = qs.filter(Q(nom__icontains=search) | Q(code__icontains=search))
         return Response(FormationListSerializer(qs, many=True).data)
-    serializer = FormationDetailSerializer(data=request.data)
+    serializer = FormationCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    etablissement_id = request.data.get("etablissement")
+    get_object_or_404(Etablissement, pk=etablissement_id, membres__utilisateur=request.user, membres__actif=True)
+    _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    etablissement = Etablissement.objects.get(pk=etablissement_id)
     try:
-        formation = formation_svc.creer_formation(**serializer.validated_data)
+        formation = formation_svc.creer_formation(etablissement=etablissement, **serializer.validated_data)
         return Response(FormationDetailSerializer(formation).data, status=status.HTTP_201_CREATED)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -235,21 +269,20 @@ def formation_list_create(request):
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def formation_detail(request, pk):
-    formation = get_object_or_404(Formation, pk=pk)
+    formation = _get_accessible(Formation, request.user, pk)
     if request.method == "GET":
         return Response(FormationDetailSerializer(formation).data)
-    serializer = FormationDetailSerializer(formation, data=request.data, partial=True)
+    _check_etablissement_permission(request.user, formation.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    serializer = FormationUpdateSerializer(formation, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
-    for field, value in serializer.validated_data.items():
-        setattr(formation, field, value)
-    formation.save()
+    formation_svc.modifier_formation(formation, **serializer.validated_data)
     return Response(FormationDetailSerializer(formation).data)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_publier(request, pk):
-    formation = get_object_or_404(Formation, pk=pk)
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         formation_svc.publier_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -260,7 +293,7 @@ def formation_publier(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_suspendre(request, pk):
-    formation = get_object_or_404(Formation, pk=pk)
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         formation_svc.suspendre_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -271,7 +304,7 @@ def formation_suspendre(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_reactiver(request, pk):
-    formation = get_object_or_404(Formation, pk=pk)
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         formation_svc.reactiver_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -282,7 +315,7 @@ def formation_reactiver(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_archiver(request, pk):
-    formation = get_object_or_404(Formation, pk=pk)
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     try:
         formation_svc.archiver_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -293,7 +326,7 @@ def formation_archiver(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def formation_sessions(request, pk):
-    formation = get_object_or_404(Formation, pk=pk)
+    formation = _get_accessible(Formation, request.user, pk)
     sessions = formation_sel.sessions_formation(pk)
     return Response(SessionListSerializer(sessions, many=True).data)
 
@@ -316,13 +349,18 @@ def session_list_create(request):
         if statut:
             qs = qs.filter(statut=statut)
         return Response(SessionListSerializer(qs, many=True).data)
-    serializer = SessionDetailSerializer(data=request.data)
+    serializer = SessionCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     try:
-        formation = get_object_or_404(Formation, pk=request.data["formation"])
-        etablissement = get_object_or_404(Etablissement, pk=request.data["etablissement"])
-        data = {k: v for k, v in serializer.validated_data.items() if k not in ("etablissement", "formation")}
-        session = session_svc.creer_session(etablissement=etablissement, formation=formation, **data)
+        etablissement_id = request.data.get("etablissement")
+        formation = _get_accessible(Formation, request.user, request.data["formation"])
+        if str(formation.etablissement_id) != etablissement_id:
+            return Response({"error": "La formation n'appartient pas à cet établissement"}, status=400)
+        _check_etablissement_permission(request.user, formation.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+        session = session_svc.creer_session(
+            etablissement=formation.etablissement, formation=formation,
+            **{k: v for k, v in serializer.validated_data.items() if k not in ("etablissement", "formation")},
+        )
         return Response(SessionDetailSerializer(session).data, status=status.HTTP_201_CREATED)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -331,24 +369,23 @@ def session_list_create(request):
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def session_detail(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_accessible(SessionFormation, request.user, pk)
     if request.method == "GET":
-        return Response(SessionDetailSerializer(session).data)
-    serializer = SessionDetailSerializer(session, data=request.data, partial=True)
+        return Response(SessionDetailSerializer(session_obj).data)
+    _check_etablissement_permission(request.user, session_obj.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    serializer = SessionUpdateSerializer(session_obj, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
-    for field, value in serializer.validated_data.items():
-        setattr(session, field, value)
-    session.save()
-    return Response(SessionDetailSerializer(session).data)
+    session_svc.modifier_session(session_obj, **{k: v for k, v in serializer.validated_data.items() if k not in ("etablissement", "formation", "statut")})
+    return Response(SessionDetailSerializer(session_obj).data)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_ouvrir_inscriptions(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
-        session_svc.ouvrir_inscriptions(session)
-        return Response(SessionDetailSerializer(session).data)
+        session_svc.ouvrir_inscriptions(session_obj)
+        return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -356,10 +393,10 @@ def session_ouvrir_inscriptions(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_fermer_inscriptions(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
-        session_svc.fermer_inscriptions(session)
-        return Response(SessionDetailSerializer(session).data)
+        session_svc.fermer_inscriptions(session_obj)
+        return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -367,10 +404,10 @@ def session_fermer_inscriptions(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_demarrer(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
-        session_svc.demarrer_session(session)
-        return Response(SessionDetailSerializer(session).data)
+        session_svc.demarrer_session(session_obj, modifie_par=request.user)
+        return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -378,10 +415,10 @@ def session_demarrer(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_terminer(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
-        session_svc.terminer_session(session)
-        return Response(SessionDetailSerializer(session).data)
+        session_svc.terminer_session(session_obj, modifie_par=request.user)
+        return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -389,10 +426,10 @@ def session_terminer(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_annuler(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     try:
-        session_svc.annuler_session(session)
-        return Response(SessionDetailSerializer(session).data)
+        session_svc.annuler_session(session_obj, modifie_par=request.user)
+        return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -400,7 +437,7 @@ def session_annuler(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def session_inscriptions(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_accessible(SessionFormation, request.user, pk)
     inscrits = session_sel.inscrits_session(pk)
     return Response(InscriptionListSerializer(inscrits, many=True).data)
 
@@ -408,16 +445,16 @@ def session_inscriptions(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def session_statistiques(request, pk):
-    session = get_object_or_404(SessionFormation, pk=pk)
+    session_obj = _get_accessible(SessionFormation, request.user, pk)
     stats = {
-        "session_id": session.pk,
-        "capacite": session.capacite,
-        "nombre_inscriptions": session.inscriptions.count(),
-        "nombre_confirmes": session.inscriptions.filter(statut="CONFIRMEE").count(),
-        "nombre_en_attente": session.inscriptions.filter(statut="EN_ATTENTE").count(),
-        "nombre_annules": session.inscriptions.filter(statut="ANNULEE").count(),
-        "places_restantes": session.nombre_places_restantes,
-        "session_complete": session.est_complete,
+        "session_id": session_obj.pk,
+        "capacite": session_obj.capacite,
+        "nombre_inscriptions": session_obj.inscriptions.count(),
+        "nombre_confirmes": session_obj.inscriptions.filter(statut="CONFIRMEE").count(),
+        "nombre_en_attente": session_obj.inscriptions.filter(statut="EN_ATTENTE").count(),
+        "nombre_annules": session_obj.inscriptions.filter(statut="ANNULEE").count(),
+        "places_restantes": session_obj.nombre_places_restantes,
+        "session_complete": session_obj.est_complete,
     }
     return Response(SessionStatsSerializer(stats).data)
 
@@ -443,10 +480,12 @@ def inscription_list_create(request):
     serializer = InscriptionCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     try:
-        apprenant = get_object_or_404(Apprenant, pk=serializer.validated_data["apprenant"])
-        session = get_object_or_404(SessionFormation, pk=serializer.validated_data["session"])
+        apprenant = _get_accessible(Apprenant, request.user, serializer.validated_data["apprenant"])
+        session_obj = _get_accessible(SessionFormation, request.user, serializer.validated_data["session"])
+        if apprenant.etablissement_id != session_obj.etablissement_id:
+            return Response({"error": "L'apprenant et la session doivent appartenir au même établissement"}, status=400)
         inscription = inscription_svc.creer_preinscription(
-            apprenant=apprenant, session=session,
+            apprenant=apprenant, session=session_obj,
             commentaire=serializer.validated_data.get("commentaire", ""), cree_par=request.user,
         )
         return Response(InscriptionDetailSerializer(inscription).data, status=status.HTTP_201_CREATED)
@@ -457,14 +496,15 @@ def inscription_list_create(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def inscription_detail(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
     return Response(InscriptionDetailSerializer(inscription).data)
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_mettre_en_attente(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
     try:
         inscription_svc.mettre_en_attente(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -475,7 +515,8 @@ def inscription_mettre_en_attente(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_confirmer(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
     try:
         inscription_svc.confirmer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -486,7 +527,8 @@ def inscription_confirmer(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_refuser(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
     motif = request.data.get("motif", "")
     try:
         inscription_svc.refuser_inscription(inscription, motif=motif, modifie_par=request.user)
@@ -498,7 +540,8 @@ def inscription_refuser(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_annuler(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
     motif = request.data.get("motif", "")
     try:
         inscription_svc.annuler_inscription(inscription, motif=motif, modifie_par=request.user)
@@ -510,7 +553,8 @@ def inscription_annuler(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_demarrer(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         inscription_svc.demarrer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -521,7 +565,8 @@ def inscription_demarrer(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_abandonner(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         inscription_svc.marquer_abandon(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -532,7 +577,8 @@ def inscription_abandonner(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def inscription_terminer(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
     try:
         inscription_svc.terminer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -543,6 +589,6 @@ def inscription_terminer(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def inscription_historique(request, pk):
-    inscription = get_object_or_404(Inscription, pk=pk)
+    inscription = _get_accessible(Inscription, request.user, pk)
     historique = inscription_sel.historique_inscription(pk)
     return Response(InscriptionHistoriqueSerializer(historique, many=True).data)

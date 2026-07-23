@@ -1,6 +1,7 @@
-from datetime import date, datetime
+from datetime import date
 
 from django.db import transaction
+from django.utils import timezone
 
 from django_formation.domain.exceptions.formation_exceptions import (
     InactiveEstablishmentError, ArchivedLearnerError, SessionNotOpenError,
@@ -27,6 +28,7 @@ class InscriptionService:
 
     @transaction.atomic
     def creer_preinscription(self, *, apprenant: Apprenant, session: SessionFormation, commentaire: str = "", cree_par=None) -> Inscription:
+        session = SessionFormation.objects.select_for_update().select_related("etablissement", "formation").get(pk=session.pk)
         if not session.etablissement.actif:
             raise InactiveEstablishmentError()
         if apprenant.statut == Apprenant.Statut.ARCHIVE:
@@ -37,10 +39,8 @@ class InscriptionService:
             raise SessionNotOpenError()
         if Inscription.objects.filter(apprenant=apprenant, session=session).exists():
             raise DuplicateEnrollmentError()
-        if session.capacite:
-            session = SessionFormation.objects.select_for_update().get(pk=session.pk)
-            if session.nombre_inscrits_actifs >= session.capacite:
-                raise SessionCapacityReachedError()
+        if session.capacite is not None and session.nombre_inscrits_actifs >= session.capacite:
+            raise SessionCapacityReachedError()
         last = Inscription.objects.filter(session__etablissement=session.etablissement).order_by("-created_at").first()
         last_num = 0
         if last and last.numero:
@@ -68,7 +68,9 @@ class InscriptionService:
             if hasattr(inscription, field):
                 setattr(inscription, field, value)
         if nouveau_statut == "CONFIRMEE":
-            inscription.date_confirmation = datetime.now()
+            inscription.date_confirmation = timezone.now()
+        if nouveau_statut in ("TERMINEE", "ABANDONNEE"):
+            inscription.date_fin = timezone.now()
         inscription.save()
         self._creer_historique(inscription, ancien, nouveau_statut, modifie_par=modifie_par)
         return inscription
@@ -79,7 +81,7 @@ class InscriptionService:
 
     @transaction.atomic
     def confirmer_inscription(self, inscription: Inscription, modifie_par=None) -> Inscription:
-        result = self._effectuer_transition(inscription, "CONFIRMEE", modifie_par, date_confirmation=datetime.now())
+        result = self._effectuer_transition(inscription, "CONFIRMEE", modifie_par)
         inscription_confirmee.send(sender=self.__class__, inscription=result, confirme_par=modifie_par)
         return result
 
@@ -105,12 +107,12 @@ class InscriptionService:
 
     @transaction.atomic
     def marquer_abandon(self, inscription: Inscription, modifie_par=None) -> Inscription:
-        result = self._effectuer_transition(inscription, "ABANDONNEE", modifie_par, date_fin=datetime.now())
+        result = self._effectuer_transition(inscription, "ABANDONNEE", modifie_par)
         inscription_abandonnee.send(sender=self.__class__, inscription=result)
         return result
 
     @transaction.atomic
     def terminer_inscription(self, inscription: Inscription, modifie_par=None) -> Inscription:
-        result = self._effectuer_transition(inscription, "TERMINEE", modifie_par, date_fin=datetime.now())
+        result = self._effectuer_transition(inscription, "TERMINEE", modifie_par)
         inscription_terminee.send(sender=self.__class__, inscription=result)
         return result

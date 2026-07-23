@@ -46,6 +46,10 @@ class Inscription(UUIDModel, TimeStampedModel):
                 fields=["apprenant", "session"],
                 name="formation_unique_apprenant_session",
             ),
+            models.UniqueConstraint(
+                fields=["etablissement", "numero"],
+                name="formation_unique_numero_inscription_etablissement",
+            ),
         ]
 
     def __str__(self):

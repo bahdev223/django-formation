@@ -51,3 +51,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True
 
 AUTH_USER_MODEL = "auth.User"
+
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "django_formation.api.exceptions.formation_exception_handler",
+}

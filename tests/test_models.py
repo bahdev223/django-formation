@@ -1,5 +1,6 @@
 from django.test import TestCase
 from django.contrib.auth.models import User
+from django.db import IntegrityError
 from django_formation.models.etablissement import Etablissement
 from django_formation.models.membre import MembreEtablissement
 from django_formation.models.apprenant import Apprenant
@@ -38,7 +39,7 @@ class ApprenantTest(TestCase):
 
     def test_matricule_unique_dans_etablissement(self):
         Apprenant.objects.create(etablissement=self.etab, matricule="APP-2026-0001", nom="A", prenom="B")
-        with self.assertRaises(Exception):
+        with self.assertRaises(IntegrityError):
             Apprenant.objects.create(etablissement=self.etab, matricule="APP-2026-0001", nom="C", prenom="D")
 
     def test_meme_matricule_possible_dans_deux_etablissements(self):
@@ -61,7 +62,7 @@ class FormationTest(TestCase):
 
     def test_code_unique_par_etablissement(self):
         Formation.objects.create(etablissement=self.etab, code="DEVWEB", nom="A")
-        with self.assertRaises(Exception):
+        with self.assertRaises(IntegrityError):
             Formation.objects.create(etablissement=self.etab, code="DEVWEB", nom="B")
 
 
@@ -88,6 +89,15 @@ class SessionTest(TestCase):
         )
         self.assertFalse(s.est_complete)
         self.assertEqual(s.nombre_places_restantes, 10)
+
+    def test_places_restantes_sans_capacite(self):
+        from datetime import date
+        s = SessionFormation.objects.create(
+            etablissement=self.etab, formation=self.formation,
+            code="S02", nom="Sans limite", date_debut=date(2026, 1, 1),
+        )
+        self.assertEqual(s.nombre_places_restantes, -1)
+        self.assertFalse(s.est_complete)
 
 
 class InscriptionTest(TestCase):
@@ -117,10 +127,22 @@ class InscriptionTest(TestCase):
             etablissement=self.etab, apprenant=self.apprenant, session=self.session,
             numero="INS-2026-0001", date_inscription=date.today(),
         )
-        with self.assertRaises(Exception):
+        with self.assertRaises(IntegrityError):
             Inscription.objects.create(
                 etablissement=self.etab, apprenant=self.apprenant, session=self.session,
                 numero="INS-2026-0002", date_inscription=date.today(),
+            )
+
+    def test_numero_unique_par_etablissement(self):
+        from datetime import date
+        Inscription.objects.create(
+            etablissement=self.etab, apprenant=self.apprenant, session=self.session,
+            numero="INS-2026-0001", date_inscription=date.today(),
+        )
+        with self.assertRaises(IntegrityError):
+            Inscription.objects.create(
+                etablissement=self.etab, apprenant=self.apprenant, session=self.session,
+                numero="INS-2026-0001", date_inscription=date.today(),
             )
 
     def test_historique_statut(self):

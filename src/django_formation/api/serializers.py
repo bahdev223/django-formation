@@ -12,6 +12,7 @@ class EtablissementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Etablissement
         fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class EtablissementListSerializer(serializers.ModelSerializer):
@@ -24,6 +25,7 @@ class MembreEtablissementSerializer(serializers.ModelSerializer):
     class Meta:
         model = MembreEtablissement
         fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class ApprenantListSerializer(serializers.ModelSerializer):
@@ -40,6 +42,7 @@ class ApprenantDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Apprenant
         fields = "__all__"
+        read_only_fields = ["id", "matricule", "statut", "created_at", "updated_at"]
 
 
 class ApprenantCreateSerializer(serializers.ModelSerializer):
@@ -48,6 +51,12 @@ class ApprenantCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Apprenant
         fields = ["matricule", "nom", "prenom", "sexe", "date_naissance", "lieu_naissance", "telephone", "email", "adresse", "contact_urgence_nom", "contact_urgence_telephone"]
+
+
+class ApprenantUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Apprenant
+        fields = ["prenom", "sexe", "date_naissance", "lieu_naissance", "telephone", "email", "adresse", "contact_urgence_nom", "contact_urgence_telephone"]
 
 
 class FormationListSerializer(serializers.ModelSerializer):
@@ -60,6 +69,19 @@ class FormationDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Formation
         fields = "__all__"
+        read_only_fields = ["id", "statut", "created_at", "updated_at"]
+
+
+class FormationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Formation
+        fields = ["code", "nom", "description", "objectifs", "duree_heures", "duree_jours", "tarif_indicatif", "devise"]
+
+
+class FormationUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Formation
+        fields = ["nom", "description", "objectifs", "duree_heures", "duree_jours", "tarif_indicatif", "devise"]
 
 
 class SessionListSerializer(serializers.ModelSerializer):
@@ -74,6 +96,19 @@ class SessionDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = SessionFormation
         fields = "__all__"
+        read_only_fields = ["id", "statut", "created_at", "updated_at"]
+
+
+class SessionCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SessionFormation
+        fields = ["code", "nom", "date_debut", "date_fin", "date_ouverture_inscriptions", "date_fermeture_inscriptions", "capacite", "tarif", "devise"]
+
+
+class SessionUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SessionFormation
+        fields = ["nom", "date_fin", "date_ouverture_inscriptions", "date_fermeture_inscriptions", "tarif", "devise"]
 
 
 class InscriptionListSerializer(serializers.ModelSerializer):
@@ -89,6 +124,7 @@ class InscriptionDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Inscription
         fields = "__all__"
+        read_only_fields = ["id", "numero", "statut", "date_inscription", "date_confirmation", "date_fin", "created_at", "updated_at", "etablissement"]
 
 
 class InscriptionCreateSerializer(serializers.Serializer):

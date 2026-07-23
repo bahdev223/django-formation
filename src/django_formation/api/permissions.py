@@ -1,12 +1,13 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission, SAFE_METHODS
 
 
-def _user_is_member_of(user, etablissement_id):
+def _is_member_with_role(user, etablissement_id, roles):
     if not user or not user.is_authenticated:
         return False
     from django_formation.models.membre import MembreEtablissement
     return MembreEtablissement.objects.filter(
-        utilisateur=user, etablissement_id=etablissement_id, actif=True,
+        utilisateur=user, etablissement_id=etablissement_id,
+        actif=True, role__in=roles,
     ).exists()
 
 
@@ -17,17 +18,13 @@ class IsAuthenticatedMember(BasePermission):
 
 class IsProprietaireOrAdmin(BasePermission):
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        return True
+        return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(self, request, view, obj):
-        etablissement_id = getattr(obj, "etablissement_id", None) or getattr(obj, "id", None)
-        from django_formation.models.membre import MembreEtablissement
-        return MembreEtablissement.objects.filter(
-            utilisateur=request.user, etablissement_id=etablissement_id,
-            actif=True, role__in=["PROPRIETAIRE", "ADMINISTRATEUR"],
-        ).exists()
+        return _is_member_with_role(
+            request.user, obj.etablissement_id,
+            ["PROPRIETAIRE", "ADMINISTRATEUR"],
+        )
 
 
 class CanManageLearners(BasePermission):
@@ -35,11 +32,10 @@ class CanManageLearners(BasePermission):
         return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(self, request, view, obj):
-        from django_formation.models.membre import MembreEtablissement
-        return MembreEtablissement.objects.filter(
-            utilisateur=request.user, etablissement_id=obj.etablissement_id,
-            actif=True, role__in=["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"],
-        ).exists()
+        return _is_member_with_role(
+            request.user, obj.etablissement_id,
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"],
+        )
 
 
 class CanManageEnrollments(BasePermission):
@@ -47,8 +43,29 @@ class CanManageEnrollments(BasePermission):
         return bool(request.user and request.user.is_authenticated)
 
     def has_object_permission(self, request, view, obj):
-        from django_formation.models.membre import MembreEtablissement
-        return MembreEtablissement.objects.filter(
-            utilisateur=request.user, etablissement_id=obj.etablissement_id,
-            actif=True, role__in=["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"],
-        ).exists()
+        return _is_member_with_role(
+            request.user, obj.etablissement_id,
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"],
+        )
+
+
+class CanManageTrainings(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        return _is_member_with_role(
+            request.user, obj.etablissement_id,
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"],
+        )
+
+
+class CanManageSessions(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        return _is_member_with_role(
+            request.user, obj.etablissement_id,
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"],
+        )

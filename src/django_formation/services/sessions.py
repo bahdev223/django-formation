@@ -1,19 +1,25 @@
 from datetime import date
 
 from django.db import transaction
+from django.utils import timezone
 
 from django_formation.domain.exceptions.formation_exceptions import (
     InactiveEstablishmentError, ArchivedTrainingError, InvalidStatusTransitionError,
-    SessionNotFoundError,
+    TrainingNotPublishedError, NoConfirmedEnrollmentsError, PendingEnrollmentsError,
+    CrossEstablishmentOperationError,
 )
 from django_formation.domain.value_objects.statut_session import StatutSession
 from django_formation.domain.validators.formation_validator import FormationValidator
 from django_formation.models.etablissement import Etablissement
 from django_formation.models.formation import Formation
 from django_formation.models.session import SessionFormation
+from django_formation.models.inscription import Inscription
+from django_formation.models.historique import HistoriqueStatutInscription
 from django_formation.signals.formation_signals import (
     session_inscriptions_ouvertes, session_demarre, session_terminee, session_annulee,
+    inscription_demarre, inscription_annulee,
 )
+from django_formation.services.inscriptions import InscriptionService
 
 
 class SessionService:
@@ -22,7 +28,7 @@ class SessionService:
         if not etablissement.actif:
             raise InactiveEstablishmentError()
         if formation.etablissement_id != etablissement.id:
-            raise ValueError("La formation n'appartient pas à cet établissement")
+            raise CrossEstablishmentOperationError("La formation n'appartient pas à cet établissement")
         if formation.statut == Formation.Statut.ARCHIVEE:
             raise ArchivedTrainingError()
         FormationValidator.valider_dates(date_debut, kwargs.get("date_fin"))
@@ -46,7 +52,7 @@ class SessionService:
         if not StatutSession(session.statut).can_transition_to(StatutSession.INSCRIPTIONS_OUVERTES):
             raise InvalidStatusTransitionError(session.statut, "INSCRIPTIONS_OUVERTES")
         if session.formation.statut != Formation.Statut.PUBLIEE:
-            raise ValueError("La formation doit être publiée pour ouvrir les inscriptions")
+            raise TrainingNotPublishedError()
         session.statut = SessionFormation.Statut.INSCRIPTIONS_OUVERTES
         session.save(update_fields=["statut"])
         session_inscriptions_ouvertes.send(sender=self.__class__, session=session)
@@ -61,35 +67,58 @@ class SessionService:
         return session
 
     @transaction.atomic
-    def demarrer_session(self, session: SessionFormation) -> SessionFormation:
+    def demarrer_session(self, session: SessionFormation, modifie_par=None) -> SessionFormation:
         if not StatutSession(session.statut).can_transition_to(StatutSession.EN_COURS):
             raise InvalidStatusTransitionError(session.statut, "EN_COURS")
-        if session.inscriptions.filter(statut="CONFIRMEE").count() == 0:
-            raise ValueError("La session doit avoir au moins une inscription confirmée pour démarrer")
+        inscriptions = session.inscriptions.select_for_update().filter(statut=Inscription.Statut.CONFIRMEE)
+        if inscriptions.count() == 0:
+            raise NoConfirmedEnrollmentsError()
+        now = timezone.now()
+        for inscription_obj in inscriptions:
+            ancien = inscription_obj.statut
+            inscription_obj.statut = Inscription.Statut.EN_COURS
+            inscription_obj.save(update_fields=["statut"])
+            HistoriqueStatutInscription.objects.create(
+                inscription=inscription_obj, ancien_statut=ancien,
+                nouveau_statut="EN_COURS", modifie_par=modifie_par,
+            )
+            inscription_demarre.send(sender=self.__class__, inscription=inscription_obj)
         session.statut = SessionFormation.Statut.EN_COURS
         session.save(update_fields=["statut"])
-        session.inscriptions.filter(statut="CONFIRMEE").update(statut="EN_COURS")
         session_demarre.send(sender=self.__class__, session=session)
         return session
 
     @transaction.atomic
-    def terminer_session(self, session: SessionFormation) -> SessionFormation:
+    def terminer_session(self, session: SessionFormation, modifie_par=None) -> SessionFormation:
         if not StatutSession(session.statut).can_transition_to(StatutSession.TERMINEE):
             raise InvalidStatusTransitionError(session.statut, "TERMINEE")
         pending = session.inscriptions.filter(statut__in=["PREINSCRITE", "EN_ATTENTE"]).count()
         if pending > 0:
-            raise ValueError(f"Il reste {pending} inscription(s) en attente")
+            raise PendingEnrollmentsError(f"Il reste {pending} inscription(s) en attente")
         session.statut = SessionFormation.Statut.TERMINEE
         session.save(update_fields=["statut"])
         session_terminee.send(sender=self.__class__, session=session)
         return session
 
     @transaction.atomic
-    def annuler_session(self, session: SessionFormation) -> SessionFormation:
+    def annuler_session(self, session: SessionFormation, modifie_par=None) -> SessionFormation:
         if not StatutSession(session.statut).can_transition_to(StatutSession.ANNULEE):
             raise InvalidStatusTransitionError(session.statut, "ANNULEE")
+        inscriptions = session.inscriptions.select_for_update().filter(
+            statut__in=["PREINSCRITE", "EN_ATTENTE", "CONFIRMEE", "EN_COURS"],
+        )
+        for inscription_obj in inscriptions:
+            ancien = inscription_obj.statut
+            inscription_obj.statut = Inscription.Statut.ANNULEE
+            inscription_obj.motif_annulation = "Session annulée"
+            inscription_obj.save(update_fields=["statut", "motif_annulation"])
+            HistoriqueStatutInscription.objects.create(
+                inscription=inscription_obj, ancien_statut=ancien,
+                nouveau_statut="ANNULEE", commentaire="Session annulée",
+                modifie_par=modifie_par,
+            )
+            inscription_annulee.send(sender=self.__class__, inscription=inscription_obj)
         session.statut = SessionFormation.Statut.ANNULEE
         session.save(update_fields=["statut"])
-        session.inscriptions.filter(statut__in=["PREINSCRITE", "EN_ATTENTE", "CONFIRMEE"]).update(statut="ANNULEE")
         session_annulee.send(sender=self.__class__, session=session)
         return session
