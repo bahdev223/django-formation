@@ -54,6 +54,7 @@ class SessionNotOpenError(FormationDomainError):
 
 class SessionCapacityReachedError(FormationDomainError):
     code = "SESSION_COMPLETE"
+    status_code = 409
 
     def __init__(self, message="La capacité maximale de la session est atteinte"):
         super().__init__(message)
@@ -61,6 +62,7 @@ class SessionCapacityReachedError(FormationDomainError):
 
 class DuplicateEnrollmentError(FormationDomainError):
     code = "DOUBLON_INSCRIPTION"
+    status_code = 409
 
     def __init__(self, message="Cet apprenant est déjà inscrit à cette session"):
         super().__init__(message)

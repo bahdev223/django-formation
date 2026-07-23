@@ -1,5 +1,3 @@
-from typing import Optional
-from django_formation.domain.events.formation_events import FormationEvent, FormationEventFactory
 
 
 class FormationDomainService:

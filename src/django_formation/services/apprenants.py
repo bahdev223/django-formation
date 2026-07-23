@@ -3,11 +3,12 @@ from typing import Optional
 from django.db import transaction
 
 from django_formation.domain.exceptions.formation_exceptions import (
-    InactiveEstablishmentError, ArchivedLearnerError, InvalidStatusTransitionError,
+    InactiveEstablishmentError, InvalidStatusTransitionError,
 )
 from django_formation.domain.value_objects.statut_apprenant import StatutApprenant
 from django_formation.models.apprenant import Apprenant
 from django_formation.models.etablissement import Etablissement
+from django_formation.settings import LEARNER_NUMBER_PREFIX, get_number_generator
 from django_formation.signals.formation_signals import apprenant_cree, apprenant_archive
 
 
@@ -20,21 +21,21 @@ class ApprenantService:
     ) -> Apprenant:
         if not etablissement.actif:
             raise InactiveEstablishmentError()
+        etablissement = Etablissement.objects.select_for_update().get(pk=etablissement.pk)
         if not matricule:
-            last = Apprenant.objects.filter(etablissement=etablissement).order_by("-created_at").first()
-            last_num = 0
-            if last and last.matricule:
-                try:
-                    last_num = int(last.matricule.split("-")[-1])
-                except (ValueError, IndexError):
-                    pass
-            matricule = f"APP-{__import__('datetime').datetime.now().year}-{last_num + 1:06d}"
+            generator = get_number_generator("LEARNER_NUMBER_GENERATOR")
+            matricule = generator(
+                queryset=Apprenant.objects.filter(etablissement=etablissement),
+                prefix=LEARNER_NUMBER_PREFIX,
+            )
         apprenant = Apprenant.objects.create(
             etablissement=etablissement, matricule=matricule,
             nom=nom.strip().upper(), prenom=prenom.strip().capitalize(),
             utilisateur=utilisateur, telephone=telephone, email=email, **kwargs,
         )
-        apprenant_cree.send(sender=self.__class__, apprenant=apprenant, cree_par=cree_par)
+        transaction.on_commit(
+            lambda: apprenant_cree.send(sender=self.__class__, apprenant=apprenant, cree_par=cree_par)
+        )
         return apprenant
 
     @transaction.atomic
@@ -67,5 +68,7 @@ class ApprenantService:
             raise InvalidStatusTransitionError(apprenant.statut, "ARCHIVE")
         apprenant.statut = Apprenant.Statut.ARCHIVE
         apprenant.save(update_fields=["statut"])
-        apprenant_archive.send(sender=self.__class__, apprenant=apprenant)
+        transaction.on_commit(
+            lambda: apprenant_archive.send(sender=self.__class__, apprenant=apprenant)
+        )
         return apprenant

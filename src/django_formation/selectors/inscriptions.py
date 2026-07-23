@@ -1,3 +1,5 @@
+from typing import Any
+
 from django_formation.models.inscription import Inscription
 from django_formation.models.historique import HistoriqueStatutInscription
 
@@ -6,7 +8,7 @@ class InscriptionSelector:
     def inscriptions_accessibles_par_utilisateur(self, user):
         return Inscription.objects.filter(etablissement__membres__utilisateur=user, etablissement__membres__actif=True)
 
-    def inscriptions_par_session(self, session_id: str):
+    def inscriptions_par_session(self, session_id: Any):
         return Inscription.objects.filter(session_id=session_id).select_related("apprenant").order_by("-date_inscription")
 
     def inscriptions_par_apprenant(self, apprenant_id: str):

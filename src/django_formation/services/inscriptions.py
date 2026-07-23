@@ -1,5 +1,3 @@
-from datetime import date
-
 from django.db import transaction
 from django.utils import timezone
 
@@ -17,6 +15,7 @@ from django_formation.signals.formation_signals import (
     inscription_creee, inscription_confirmee, inscription_refusee,
     inscription_annulee, inscription_abandonnee, inscription_terminee,
 )
+from django_formation.settings import ENROLLMENT_NUMBER_PREFIX, get_number_generator
 
 
 class InscriptionService:
@@ -41,21 +40,22 @@ class InscriptionService:
             raise DuplicateEnrollmentError()
         if session.capacite is not None and session.nombre_inscrits_actifs >= session.capacite:
             raise SessionCapacityReachedError()
-        last = Inscription.objects.filter(session__etablissement=session.etablissement).order_by("-created_at").first()
-        last_num = 0
-        if last and last.numero:
-            try:
-                last_num = int(last.numero.split("-")[-1])
-            except (ValueError, IndexError):
-                pass
-        numero = f"INS-{date.today().year}-{last_num + 1:06d}"
+        generator = get_number_generator("ENROLLMENT_NUMBER_GENERATOR")
+        numero = generator(
+            queryset=Inscription.objects.filter(etablissement=session.etablissement),
+            prefix=ENROLLMENT_NUMBER_PREFIX,
+        )
         inscription = Inscription.objects.create(
             etablissement=session.etablissement, apprenant=apprenant,
-            session=session, numero=numero, date_inscription=date.today(),
+            session=session, numero=numero, date_inscription=timezone.localdate(),
             statut=Inscription.Statut.PREINSCRITE, commentaire=commentaire,
         )
         self._creer_historique(inscription, "", "PREINSCRITE", "Préinscription créée", cree_par)
-        inscription_creee.send(sender=self.__class__, inscription=inscription, cree_par=cree_par)
+        transaction.on_commit(
+            lambda: inscription_creee.send(
+                sender=self.__class__, inscription=inscription, cree_par=cree_par
+            )
+        )
         return inscription
 
     def _effectuer_transition(self, inscription: Inscription, nouveau_statut: str, modifie_par=None, **kwargs) -> Inscription:
@@ -82,7 +82,11 @@ class InscriptionService:
     @transaction.atomic
     def confirmer_inscription(self, inscription: Inscription, modifie_par=None) -> Inscription:
         result = self._effectuer_transition(inscription, "CONFIRMEE", modifie_par)
-        inscription_confirmee.send(sender=self.__class__, inscription=result, confirme_par=modifie_par)
+        transaction.on_commit(
+            lambda: inscription_confirmee.send(
+                sender=self.__class__, inscription=result, confirme_par=modifie_par
+            )
+        )
         return result
 
     @transaction.atomic
@@ -90,7 +94,9 @@ class InscriptionService:
         if not motif:
             raise MissingRejectionReasonError()
         result = self._effectuer_transition(inscription, "REFUSEE", modifie_par, motif_refus=motif)
-        inscription_refusee.send(sender=self.__class__, inscription=result, motif=motif)
+        transaction.on_commit(
+            lambda: inscription_refusee.send(sender=self.__class__, inscription=result, motif=motif)
+        )
         return result
 
     @transaction.atomic
@@ -98,7 +104,9 @@ class InscriptionService:
         if not motif:
             raise MissingCancellationReasonError()
         result = self._effectuer_transition(inscription, "ANNULEE", modifie_par, motif_annulation=motif)
-        inscription_annulee.send(sender=self.__class__, inscription=result, motif=motif)
+        transaction.on_commit(
+            lambda: inscription_annulee.send(sender=self.__class__, inscription=result, motif=motif)
+        )
         return result
 
     @transaction.atomic
@@ -108,11 +116,15 @@ class InscriptionService:
     @transaction.atomic
     def marquer_abandon(self, inscription: Inscription, modifie_par=None) -> Inscription:
         result = self._effectuer_transition(inscription, "ABANDONNEE", modifie_par)
-        inscription_abandonnee.send(sender=self.__class__, inscription=result)
+        transaction.on_commit(
+            lambda: inscription_abandonnee.send(sender=self.__class__, inscription=result)
+        )
         return result
 
     @transaction.atomic
     def terminer_inscription(self, inscription: Inscription, modifie_par=None) -> Inscription:
         result = self._effectuer_transition(inscription, "TERMINEE", modifie_par)
-        inscription_terminee.send(sender=self.__class__, inscription=result)
+        transaction.on_commit(
+            lambda: inscription_terminee.send(sender=self.__class__, inscription=result)
+        )
         return result

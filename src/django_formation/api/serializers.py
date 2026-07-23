@@ -108,7 +108,10 @@ class SessionCreateSerializer(serializers.ModelSerializer):
 class SessionUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SessionFormation
-        fields = ["nom", "date_fin", "date_ouverture_inscriptions", "date_fermeture_inscriptions", "tarif", "devise"]
+        fields = [
+            "nom", "date_debut", "date_fin", "date_ouverture_inscriptions",
+            "date_fermeture_inscriptions", "capacite", "tarif", "devise",
+        ]
 
 
 class InscriptionListSerializer(serializers.ModelSerializer):

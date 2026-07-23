@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional
 from decimal import Decimal
 
 
@@ -21,11 +22,14 @@ class FormationValidator:
             raise ValueError("La capacité doit être supérieure à zéro")
 
     @staticmethod
-    def valider_dates(date_debut: date, date_fin: date = None) -> None:
+    def valider_dates(date_debut: date, date_fin: Optional[date] = None) -> None:
         if date_fin and date_fin < date_debut:
             raise ValueError("La date de fin doit être postérieure à la date de début")
 
     @staticmethod
-    def valider_periodes_inscription(date_ouverture: date, date_fermeture: date = None) -> None:
+    def valider_periodes_inscription(
+        date_ouverture: Optional[date],
+        date_fermeture: Optional[date] = None,
+    ) -> None:
         if date_ouverture and date_fermeture and date_fermeture < date_ouverture:
             raise ValueError("La date de fermeture des inscriptions doit être postérieure à la date d'ouverture")

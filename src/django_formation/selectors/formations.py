@@ -1,6 +1,5 @@
 from typing import Optional
 
-from django.db.models import Q
 from django_formation.models.formation import Formation
 
 

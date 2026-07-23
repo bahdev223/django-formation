@@ -1,7 +1,7 @@
-*.pyc
+.coverage
+.pytest_cache/
 __pycache__/
-*.egg-info/
-dist/
+*.py[cod]
 build/
-.venv/
-*.sqlite3
+dist/
+*.egg-info/

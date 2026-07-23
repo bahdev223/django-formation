@@ -1,13 +1,11 @@
-from datetime import date, datetime
+from datetime import date
 from django.test import TestCase
-from django.contrib.auth.models import User
 from django_formation.models.etablissement import Etablissement
 from django_formation.models.apprenant import Apprenant
 from django_formation.models.formation import Formation
 from django_formation.models.session import SessionFormation
 from django_formation.models.inscription import Inscription
 from django_formation.models.historique import HistoriqueStatutInscription
-from django_formation.models.membre import MembreEtablissement
 from django_formation.services.apprenants import ApprenantService
 from django_formation.services.formations import FormationService
 from django_formation.services.sessions import SessionService
@@ -17,7 +15,7 @@ from django_formation.domain.exceptions.formation_exceptions import (
     ArchivedTrainingError, SessionNotOpenError, DuplicateEnrollmentError,
     SessionCapacityReachedError, MissingRejectionReasonError, MissingCancellationReasonError,
     ArchivedLearnerError, TrainingNotPublishedError, NoConfirmedEnrollmentsError,
-    PendingEnrollmentsError, CrossEstablishmentOperationError,
+    CrossEstablishmentOperationError,
 )
 
 

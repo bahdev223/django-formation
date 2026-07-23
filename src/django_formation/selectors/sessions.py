@@ -1,6 +1,5 @@
-from typing import Optional
+from typing import Any, Optional
 
-from django.db.models import Q
 from django_formation.models.session import SessionFormation
 
 
@@ -26,7 +25,7 @@ class SessionSelector:
     def detail_session(self, session_id: str):
         return SessionFormation.objects.select_related("etablissement", "formation").prefetch_related("inscriptions__apprenant").filter(pk=session_id).first()
 
-    def inscrits_session(self, session_id: str):
+    def inscrits_session(self, session_id: Any):
         from django_formation.models.inscription import Inscription
         return Inscription.objects.filter(session_id=session_id).select_related("apprenant").order_by("-date_inscription")
 

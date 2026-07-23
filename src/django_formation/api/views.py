@@ -20,10 +20,6 @@ from django_formation.api.serializers import (
     InscriptionListSerializer, InscriptionDetailSerializer, InscriptionCreateSerializer,
     SessionStatsSerializer, InscriptionHistoriqueSerializer,
 )
-from django_formation.api.permissions import (
-    IsAuthenticatedMember, IsProprietaireOrAdmin, CanManageLearners, CanManageEnrollments,
-    CanManageTrainings, CanManageSessions,
-)
 from django_formation.services.apprenants import ApprenantService
 from django_formation.services.formations import FormationService
 from django_formation.services.sessions import SessionService
@@ -33,6 +29,7 @@ from django_formation.selectors.formations import FormationSelector
 from django_formation.selectors.sessions import SessionSelector
 from django_formation.selectors.inscriptions import InscriptionSelector
 from django_formation.domain.exceptions.formation_exceptions import FormationDomainError
+from django_formation.api.pagination import paginated_response
 
 apprenant_svc = ApprenantService()
 formation_svc = FormationService()
@@ -42,6 +39,13 @@ apprenant_sel = ApprenantSelector()
 formation_sel = FormationSelector()
 session_sel = SessionSelector()
 inscription_sel = InscriptionSelector()
+
+
+def _domain_error_response(exc):
+    return Response(
+        {"code": exc.code, "message": str(exc), "details": {}},
+        status=exc.status_code,
+    )
 
 
 def _get_accessible(model, user, pk):
@@ -76,7 +80,7 @@ def _check_etablissement_permission(user, etablissement_id, roles):
 def etablissement_list_create(request):
     if request.method == "GET":
         qs = Etablissement.objects.filter(membres__utilisateur=request.user, membres__actif=True).distinct()
-        return Response(EtablissementListSerializer(qs, many=True).data)
+        return paginated_response(request, qs, EtablissementListSerializer)
     serializer = EtablissementSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     etablissement = serializer.save()
@@ -126,7 +130,7 @@ def membre_list_create(request, pk):
     _check_etablissement_permission(request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR"])
     if request.method == "GET":
         qs = MembreEtablissement.objects.filter(etablissement=etablissement)
-        return Response(MembreEtablissementSerializer(qs, many=True).data)
+        return paginated_response(request, qs, MembreEtablissementSerializer)
     serializer = MembreEtablissementSerializer(data={**request.data, "etablissement": str(etablissement.pk)})
     serializer.is_valid(raise_exception=True)
     serializer.save()
@@ -163,7 +167,7 @@ def apprenant_list_create(request):
         _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"])
         qs = apprenant_sel.rechercher_apprenants(etablissement_id, query=search or "", statut=statut)
         qs = qs.order_by(ordering)
-        return Response(ApprenantListSerializer(qs, many=True).data)
+        return paginated_response(request, qs, ApprenantListSerializer)
     serializer = ApprenantCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     etablissement_id = request.data.get("etablissement")
@@ -174,7 +178,7 @@ def apprenant_list_create(request):
         apprenant = apprenant_svc.creer_apprenant(etablissement=etablissement, **serializer.validated_data, cree_par=request.user)
         return Response(ApprenantDetailSerializer(apprenant).data, status=status.HTTP_201_CREATED)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET", "PATCH"])
@@ -199,7 +203,7 @@ def apprenant_activer(request, pk):
         apprenant_svc.activer_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -211,7 +215,7 @@ def apprenant_desactiver(request, pk):
         apprenant_svc.desactiver_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -223,7 +227,7 @@ def apprenant_archiver(request, pk):
         apprenant_svc.archiver_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET"])
@@ -231,7 +235,7 @@ def apprenant_archiver(request, pk):
 def apprenant_inscriptions(request, pk):
     apprenant = _get_accessible(Apprenant, request.user, pk)
     inscriptions = apprenant_sel.inscriptions_apprenant(apprenant)
-    return Response(InscriptionListSerializer(inscriptions, many=True).data)
+    return paginated_response(request, inscriptions, InscriptionListSerializer)
 
 
 # ---- Formations ----
@@ -244,6 +248,11 @@ def formation_list_create(request):
         statut = request.query_params.get("statut")
         search = request.query_params.get("search")
         if etablissement_id:
+            _check_etablissement_permission(
+                request.user,
+                etablissement_id,
+                ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"],
+            )
             qs = formation_sel.formations_par_etablissement(etablissement_id)
         else:
             qs = formation_sel.formations_accessibles_par_utilisateur(request.user)
@@ -252,7 +261,7 @@ def formation_list_create(request):
         if search:
             from django.db.models import Q
             qs = qs.filter(Q(nom__icontains=search) | Q(code__icontains=search))
-        return Response(FormationListSerializer(qs, many=True).data)
+        return paginated_response(request, qs.distinct(), FormationListSerializer)
     serializer = FormationCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     etablissement_id = request.data.get("etablissement")
@@ -263,7 +272,7 @@ def formation_list_create(request):
         formation = formation_svc.creer_formation(etablissement=etablissement, **serializer.validated_data)
         return Response(FormationDetailSerializer(formation).data, status=status.HTTP_201_CREATED)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET", "PATCH"])
@@ -287,7 +296,7 @@ def formation_publier(request, pk):
         formation_svc.publier_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -298,7 +307,7 @@ def formation_suspendre(request, pk):
         formation_svc.suspendre_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -309,7 +318,7 @@ def formation_reactiver(request, pk):
         formation_svc.reactiver_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -320,15 +329,15 @@ def formation_archiver(request, pk):
         formation_svc.archiver_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def formation_sessions(request, pk):
-    formation = _get_accessible(Formation, request.user, pk)
+    _get_accessible(Formation, request.user, pk)
     sessions = formation_sel.sessions_formation(pk)
-    return Response(SessionListSerializer(sessions, many=True).data)
+    return paginated_response(request, sessions, SessionListSerializer)
 
 
 # ---- Sessions ----
@@ -341,6 +350,11 @@ def session_list_create(request):
         formation_id = request.query_params.get("formation")
         statut = request.query_params.get("statut")
         if etablissement_id:
+            _check_etablissement_permission(
+                request.user,
+                etablissement_id,
+                ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"],
+            )
             qs = SessionFormation.objects.filter(etablissement_id=etablissement_id)
         else:
             qs = session_sel.sessions_accessibles_par_utilisateur(request.user)
@@ -348,7 +362,7 @@ def session_list_create(request):
             qs = qs.filter(formation_id=formation_id)
         if statut:
             qs = qs.filter(statut=statut)
-        return Response(SessionListSerializer(qs, many=True).data)
+        return paginated_response(request, qs.distinct(), SessionListSerializer)
     serializer = SessionCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     try:
@@ -363,7 +377,7 @@ def session_list_create(request):
         )
         return Response(SessionDetailSerializer(session).data, status=status.HTTP_201_CREATED)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET", "PATCH"])
@@ -387,7 +401,7 @@ def session_ouvrir_inscriptions(request, pk):
         session_svc.ouvrir_inscriptions(session_obj)
         return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -398,7 +412,7 @@ def session_fermer_inscriptions(request, pk):
         session_svc.fermer_inscriptions(session_obj)
         return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -409,7 +423,7 @@ def session_demarrer(request, pk):
         session_svc.demarrer_session(session_obj, modifie_par=request.user)
         return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -420,7 +434,7 @@ def session_terminer(request, pk):
         session_svc.terminer_session(session_obj, modifie_par=request.user)
         return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -431,15 +445,15 @@ def session_annuler(request, pk):
         session_svc.annuler_session(session_obj, modifie_par=request.user)
         return Response(SessionDetailSerializer(session_obj).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def session_inscriptions(request, pk):
-    session_obj = _get_accessible(SessionFormation, request.user, pk)
+    _get_accessible(SessionFormation, request.user, pk)
     inscrits = session_sel.inscrits_session(pk)
-    return Response(InscriptionListSerializer(inscrits, many=True).data)
+    return paginated_response(request, inscrits, InscriptionListSerializer)
 
 
 @api_view(["GET"])
@@ -469,14 +483,16 @@ def inscription_list_create(request):
         apprenant_id = request.query_params.get("apprenant")
         statut_filter = request.query_params.get("statut")
         if session_id:
-            qs = inscription_sel.inscriptions_par_session(session_id)
+            session_obj = _get_accessible(SessionFormation, request.user, session_id)
+            qs = inscription_sel.inscriptions_par_session(session_obj.pk)
         elif apprenant_id:
-            qs = inscription_sel.inscriptions_par_apprenant(apprenant_id)
+            apprenant = _get_accessible(Apprenant, request.user, apprenant_id)
+            qs = inscription_sel.inscriptions_par_apprenant(apprenant.pk)
         else:
             qs = inscription_sel.inscriptions_accessibles_par_utilisateur(request.user)
         if statut_filter:
             qs = qs.filter(statut=statut_filter)
-        return Response(InscriptionListSerializer(qs, many=True).data)
+        return paginated_response(request, qs.distinct(), InscriptionListSerializer)
     serializer = InscriptionCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     try:
@@ -490,7 +506,7 @@ def inscription_list_create(request):
         )
         return Response(InscriptionDetailSerializer(inscription).data, status=status.HTTP_201_CREATED)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["GET"])
@@ -509,7 +525,7 @@ def inscription_mettre_en_attente(request, pk):
         inscription_svc.mettre_en_attente(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -521,7 +537,7 @@ def inscription_confirmer(request, pk):
         inscription_svc.confirmer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
     except FormationDomainError as e:
-        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return _domain_error_response(e)
 
 
 @api_view(["POST"])
@@ -589,6 +605,6 @@ def inscription_terminer(request, pk):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def inscription_historique(request, pk):
-    inscription = _get_accessible(Inscription, request.user, pk)
+    _get_accessible(Inscription, request.user, pk)
     historique = inscription_sel.historique_inscription(pk)
-    return Response(InscriptionHistoriqueSerializer(historique, many=True).data)
+    return paginated_response(request, historique, InscriptionHistoriqueSerializer)
