@@ -164,7 +164,7 @@ def apprenant_list_create(request):
         ordering = request.query_params.get("ordering", "nom")
         if not etablissement_id:
             return Response({"error": "etablissement parameter is required"}, status=400)
-        _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"])
+        _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE", "LECTEUR"])
         qs = apprenant_sel.rechercher_apprenants(etablissement_id, query=search or "", statut=statut)
         qs = qs.order_by(ordering)
         return paginated_response(request, qs, ApprenantListSerializer)
@@ -172,7 +172,7 @@ def apprenant_list_create(request):
     serializer.is_valid(raise_exception=True)
     etablissement_id = request.data.get("etablissement")
     get_object_or_404(Etablissement, pk=etablissement_id, membres__utilisateur=request.user, membres__actif=True)
-    _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"])
+    _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"])
     etablissement = Etablissement.objects.get(pk=etablissement_id)
     try:
         apprenant = apprenant_svc.creer_apprenant(etablissement=etablissement, **serializer.validated_data, cree_par=request.user)
@@ -187,7 +187,7 @@ def apprenant_detail(request, pk):
     apprenant = _get_accessible(Apprenant, request.user, pk)
     if request.method == "GET":
         return Response(ApprenantDetailSerializer(apprenant).data)
-    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"])
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"])
     serializer = ApprenantUpdateSerializer(apprenant, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     apprenant_svc.modifier_apprenant(apprenant, **serializer.validated_data)
@@ -198,7 +198,7 @@ def apprenant_detail(request, pk):
 @permission_classes([IsAuthenticated])
 def apprenant_activer(request, pk):
     apprenant = _get_accessible(Apprenant, request.user, pk)
-    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         apprenant_svc.activer_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
@@ -210,7 +210,7 @@ def apprenant_activer(request, pk):
 @permission_classes([IsAuthenticated])
 def apprenant_desactiver(request, pk):
     apprenant = _get_accessible(Apprenant, request.user, pk)
-    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         apprenant_svc.desactiver_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
@@ -222,7 +222,7 @@ def apprenant_desactiver(request, pk):
 @permission_classes([IsAuthenticated])
 def apprenant_archiver(request, pk):
     apprenant = _get_accessible(Apprenant, request.user, pk)
-    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, apprenant.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         apprenant_svc.archiver_apprenant(apprenant)
         return Response(ApprenantDetailSerializer(apprenant).data)
@@ -251,7 +251,7 @@ def formation_list_create(request):
             _check_etablissement_permission(
                 request.user,
                 etablissement_id,
-                ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"],
+                ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE", "LECTEUR"],
             )
             qs = formation_sel.formations_par_etablissement(etablissement_id)
         else:
@@ -266,7 +266,7 @@ def formation_list_create(request):
     serializer.is_valid(raise_exception=True)
     etablissement_id = request.data.get("etablissement")
     get_object_or_404(Etablissement, pk=etablissement_id, membres__utilisateur=request.user, membres__actif=True)
-    _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     etablissement = Etablissement.objects.get(pk=etablissement_id)
     try:
         formation = formation_svc.creer_formation(etablissement=etablissement, **serializer.validated_data)
@@ -281,7 +281,7 @@ def formation_detail(request, pk):
     formation = _get_accessible(Formation, request.user, pk)
     if request.method == "GET":
         return Response(FormationDetailSerializer(formation).data)
-    _check_etablissement_permission(request.user, formation.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, formation.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     serializer = FormationUpdateSerializer(formation, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     formation_svc.modifier_formation(formation, **serializer.validated_data)
@@ -291,7 +291,7 @@ def formation_detail(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_publier(request, pk):
-    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         formation_svc.publier_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -302,7 +302,7 @@ def formation_publier(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_suspendre(request, pk):
-    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         formation_svc.suspendre_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -313,7 +313,7 @@ def formation_suspendre(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def formation_reactiver(request, pk):
-    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    formation = _get_objet_editable(Formation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         formation_svc.reactiver_formation(formation)
         return Response(FormationDetailSerializer(formation).data)
@@ -353,7 +353,7 @@ def session_list_create(request):
             _check_etablissement_permission(
                 request.user,
                 etablissement_id,
-                ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION", "LECTEUR"],
+                ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE", "LECTEUR"],
             )
             qs = SessionFormation.objects.filter(etablissement_id=etablissement_id)
         else:
@@ -370,7 +370,7 @@ def session_list_create(request):
         formation = _get_accessible(Formation, request.user, request.data["formation"])
         if str(formation.etablissement_id) != etablissement_id:
             return Response({"error": "La formation n'appartient pas à cet établissement"}, status=400)
-        _check_etablissement_permission(request.user, formation.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+        _check_etablissement_permission(request.user, formation.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
         session = session_svc.creer_session(
             etablissement=formation.etablissement, formation=formation,
             **{k: v for k, v in serializer.validated_data.items() if k not in ("etablissement", "formation")},
@@ -386,7 +386,7 @@ def session_detail(request, pk):
     session_obj = _get_accessible(SessionFormation, request.user, pk)
     if request.method == "GET":
         return Response(SessionDetailSerializer(session_obj).data)
-    _check_etablissement_permission(request.user, session_obj.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, session_obj.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     serializer = SessionUpdateSerializer(session_obj, data=request.data, partial=True)
     serializer.is_valid(raise_exception=True)
     session_svc.modifier_session(session_obj, **{k: v for k, v in serializer.validated_data.items() if k not in ("etablissement", "formation", "statut")})
@@ -396,7 +396,7 @@ def session_detail(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_ouvrir_inscriptions(request, pk):
-    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         session_svc.ouvrir_inscriptions(session_obj)
         return Response(SessionDetailSerializer(session_obj).data)
@@ -407,7 +407,7 @@ def session_ouvrir_inscriptions(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_fermer_inscriptions(request, pk):
-    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         session_svc.fermer_inscriptions(session_obj)
         return Response(SessionDetailSerializer(session_obj).data)
@@ -418,7 +418,7 @@ def session_fermer_inscriptions(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_demarrer(request, pk):
-    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         session_svc.demarrer_session(session_obj, modifie_par=request.user)
         return Response(SessionDetailSerializer(session_obj).data)
@@ -429,7 +429,7 @@ def session_demarrer(request, pk):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def session_terminer(request, pk):
-    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    session_obj = _get_objet_editable(SessionFormation, request.user, pk, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         session_svc.terminer_session(session_obj, modifie_par=request.user)
         return Response(SessionDetailSerializer(session_obj).data)
@@ -520,7 +520,7 @@ def inscription_detail(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_mettre_en_attente(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
     try:
         inscription_svc.mettre_en_attente(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -532,7 +532,7 @@ def inscription_mettre_en_attente(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_confirmer(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
     try:
         inscription_svc.confirmer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -544,7 +544,7 @@ def inscription_confirmer(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_refuser(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
     motif = request.data.get("motif", "")
     try:
         inscription_svc.refuser_inscription(inscription, motif=motif, modifie_par=request.user)
@@ -557,7 +557,7 @@ def inscription_refuser(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_annuler(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
     motif = request.data.get("motif", "")
     try:
         inscription_svc.annuler_inscription(inscription, motif=motif, modifie_par=request.user)
@@ -570,7 +570,7 @@ def inscription_annuler(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_demarrer(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         inscription_svc.demarrer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -582,7 +582,7 @@ def inscription_demarrer(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_abandonner(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         inscription_svc.marquer_abandon(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -594,7 +594,7 @@ def inscription_abandonner(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_terminer(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"])
     try:
         inscription_svc.terminer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)

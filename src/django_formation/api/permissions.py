@@ -34,7 +34,7 @@ class CanManageLearners(BasePermission):
     def has_object_permission(self, request, view, obj):
         return _is_member_with_role(
             request.user, obj.etablissement_id,
-            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"],
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"],
         )
 
 
@@ -45,7 +45,7 @@ class CanManageEnrollments(BasePermission):
     def has_object_permission(self, request, view, obj):
         return _is_member_with_role(
             request.user, obj.etablissement_id,
-            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "AGENT_INSCRIPTION"],
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"],
         )
 
 
@@ -56,7 +56,7 @@ class CanManageTrainings(BasePermission):
     def has_object_permission(self, request, view, obj):
         return _is_member_with_role(
             request.user, obj.etablissement_id,
-            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"],
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"],
         )
 
 
@@ -67,5 +67,5 @@ class CanManageSessions(BasePermission):
     def has_object_permission(self, request, view, obj):
         return _is_member_with_role(
             request.user, obj.etablissement_id,
-            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE"],
+            ["PROPRIETAIRE", "ADMINISTRATEUR", "RESPONSABLE", "GERANT"],
         )

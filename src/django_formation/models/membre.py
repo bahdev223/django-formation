@@ -10,6 +10,8 @@ class MembreEtablissement(UUIDModel, TimeStampedModel):
         PROPRIETAIRE = "PROPRIETAIRE", _("Propriétaire")
         ADMINISTRATEUR = "ADMINISTRATEUR", _("Administrateur")
         RESPONSABLE = "RESPONSABLE", _("Responsable de formation")
+        GERANT = "GERANT", _("Gérant")
+        SECRETAIRE = "SECRETAIRE", _("Secrétaire")
         AGENT_INSCRIPTION = "AGENT_INSCRIPTION", _("Agent d'inscription")
         LECTEUR = "LECTEUR", _("Lecteur")
 
