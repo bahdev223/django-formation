@@ -520,7 +520,7 @@ def inscription_detail(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_mettre_en_attente(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"])
     try:
         inscription_svc.mettre_en_attente(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -532,7 +532,7 @@ def inscription_mettre_en_attente(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_confirmer(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"])
     try:
         inscription_svc.confirmer_inscription(inscription, modifie_par=request.user)
         return Response(InscriptionDetailSerializer(inscription).data)
@@ -544,7 +544,7 @@ def inscription_confirmer(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_refuser(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"])
     motif = request.data.get("motif", "")
     try:
         inscription_svc.refuser_inscription(inscription, motif=motif, modifie_par=request.user)
@@ -557,7 +557,7 @@ def inscription_refuser(request, pk):
 @permission_classes([IsAuthenticated])
 def inscription_annuler(request, pk):
     inscription = _get_accessible(Inscription, request.user, pk)
-    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "AGENT_INSCRIPTION", "SECRETAIRE"])
+    _check_etablissement_permission(request.user, inscription.etablissement_id, ["PROPRIETAIRE", "ADMINISTRATEUR", "GERANT", "AGENT_INSCRIPTION", "SECRETAIRE"])
     motif = request.data.get("motif", "")
     try:
         inscription_svc.annuler_inscription(inscription, motif=motif, modifie_par=request.user)
